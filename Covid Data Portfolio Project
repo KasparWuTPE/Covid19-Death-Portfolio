@@ -1,9 +1,135 @@
--- Viewing Datas
+-- Looking at Total Cases vs Total Deaths
 
-SELECT *
+SELECT location, date, total_cases, total_deaths, (total_deaths/total_cases)*100 AS DeathPercentage
 FROM CovidDeaths
-ORDER BY 3,4
+WHERE location like '%taiwan%'
+ORDER BY location, date
+
+-- Looking at Total Case vs Population
+
+SELECT location, date, population, total_cases, (total_cases/population)*100 AS CasePercentage
+FROM CovidDeaths
+WHERE location = 'taiwan'
+ORDER BY location, date
+
+-- Looking at Countries with Highest Infection Rate
+
+SELECT location, population, MAX(total_cases) AS MaxCase, MAX((total_cases/population)*100) AS MAxCasePercentage
+FROM CovidDeaths
+--WHERE location = 'taiwan'
+GROUP BY location, population
+ORDER BY MAxCasePercentage desc
+
+-- Looking at Countries with Highest Death Count per Population
+
+SELECT location, Max(cast(total_deaths as int)) AS TotalDeathCount
+FROM CovidDeaths
+WHERE continent is not NULL
+GROUP BY location
+ORDER BY TotalDeathCount desc
+
+-- Breaking Things Down by Continent
+-- Showing continents with the highest death count per population
+
+SELECT continent, Max(cast(total_deaths as int)) AS TotalDeathCount
+FROM CovidDeaths
+WHERE continent is not NULL
+GROUP BY continent
+ORDER BY TotalDeathCount desc
+
+-- Global Numbers
+
+SELECT SUM(new_cases) as TotalCases, SUM(CAST(new_deaths as int)) as TotalDeaths, SUM(CAST(new_deaths as int))/SUM(new_cases)*100 as DeathPercentage
+FROM CovidDeaths
+WHERE continent is not NULL
+
+-- Looking at Total Population vs Vaccinations
+
+SELECT dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations, 
+  SUM(CONVERT(int, vac.new_vaccinations)) OVER (PARTITION BY dea.location ORDER BY dea.location, dea.date) as RollingPeopleVaccinated
+FROM CovidDeaths as dea
+JOIN CovidVaccinations as vac
+ON dea.location = vac.location
+AND dea.date = vac.date
+ORDER BY 2,3
+
+-- Using CTE
+
+With PopvsVac (Continent, location, date, population, new_vaccinations, RollingPeopleVaccinated)
+as
+(
+SELECT dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations, 
+  SUM(CONVERT(int, vac.new_vaccinations)) OVER (PARTITION BY dea.location ORDER BY dea.location, dea.date) as RollingPeopleVaccinated
+FROM CovidDeaths as dea
+JOIN CovidVaccinations as vac
+ON dea.location = vac.location
+AND dea.date = vac.date
+)
+
+SELECT *, (RollingPeopleVaccinated/population)*100 as Vaccinated_Population
+FROM PopvsVac
+WHERE location like '%taiwan%'
+ORDER BY 3 DESC
+
+-- Using Temp Table
+
+DROP TABLE if exists #PercentPopulationVaccinated
+CREATE TABLE #PercentPopulationVaccinated
+(Continent nvarchar(255), 
+Location nvarchar(255), 
+Date datetime, 
+Population numeric, 
+New_vaccinations numeric, 
+RollingPeopleVaccinated numeric)
+
+INSERT INTO #PercentPopulationVaccinated
+SELECT dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations, 
+  SUM(CAST(vac.new_vaccinations as int)) OVER (PARTITION BY dea.location ORDER BY dea.location, dea.date) as RollingPeopleVaccinated
+FROM CovidDeaths as dea
+JOIN CovidVaccinations as vac
+ON dea.location = vac.location
+AND dea.date = vac.date
 
 SELECT *
-FROM CovidVaccinations
-ORDER BY 3,4
+FROM #PercentPopulationVaccinated
+ORDER BY 2, 3
+
+-- Creating View to store data for later visualization
+
+CREATE VIEW PercentPopulationVaccinated as 
+SELECT dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations, 
+  SUM(CAST(vac.new_vaccinations as int)) OVER (PARTITION BY dea.location ORDER BY dea.location, dea.date) as RollingPeopleVaccinated
+FROM CovidDeaths as dea
+JOIN CovidVaccinations as vac
+ON dea.location = vac.location
+AND dea.date = vac.date
+WHERE dea.continent is not null
+
+-- Tableau Table 1. Global Numbers
+
+SELECT SUM(new_cases) as TotalCases, SUM(CAST(new_deaths as int)) as TotalDeaths, SUM(CAST(new_deaths as int))/SUM(new_cases)*100 as DeathPercentage
+FROM CovidDeaths
+WHERE continent is not NULL
+
+-- Tableau Table 2. Total Deaths Per Continent
+
+SELECT location, SUM(CAST(new_deaths as int)) as TotalDeathCount
+FROM CovidDeaths
+WHERE continent is null
+AND location not in ('World', 'European Union', 'High income', 'Upper middle income', 'Lower middle income', 'Low income', 'International')
+GROUP BY location
+ORDER BY TotalDeathCount DESC
+
+-- Tableau Table 3. Percent Population Infected Per Country
+
+SELECT Location, Population, MAX(total_cases) AS HighestInfectionCount, MAX((total_cases/population)*100) AS PercentPopulationInfected
+FROM CovidDeaths
+GROUP BY location, population
+ORDER BY PercentPopulationInfected DESC
+
+-- Tableau Table 4. Percent Population Infected
+
+SELECT Location, Population, Date, MAX(total_cases) AS HighestInfectionCount, MAX((total_cases/population)*100) AS PercentPopulationInfected
+FROM CovidDeaths
+GROUP BY location, population, date
+ORDER BY PercentPopulationInfected DESC
